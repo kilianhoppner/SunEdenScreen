@@ -1605,7 +1605,7 @@
           visitApproachAmount: { type: "number", default: 0.73 },
           resumeAdvance: { type: "number", default: 0.85 },
           resumeFrontAngle: { type: "number", default: 4.71239 },
-          leaveTurnTime: { type: "number", default: 1.35 },
+          headLowerTime: { type: "number", default: 1.45 },
           turnSmooth: { type: "number", default: 2.1 },
           cameraSelector: { type: "string", default: "[camera]" }
         },
@@ -1633,7 +1633,6 @@
           this.returnAngle = 0;
           this.fixedStopNormal = new THREE.Vector3();
           this.hasFixedStopNormal = false;
-          this.removedCameraTree = false;
           this.smoothedForward = new THREE.Vector3();
           this.hasSmoothedForward = false;
         },
@@ -1661,7 +1660,6 @@
                   this.fixedStopNormal
                 );
                 this.hasFixedStopNormal = true;
-                this.removeTreeNearestStop();
               }
               this.stopNormal.copy(this.fixedStopNormal);
               this.toNormal.copy(this.stopNormal);
@@ -1698,20 +1696,23 @@
             }
           } else if (this.mode === "toCircle") {
             this.modeT += dt;
-            var leaveTurnTime = Math.min(this.data.leaveTurnTime, this.data.visitTravelTime - 0.2);
-            var leaveTravelTime = Math.max(0.2, this.data.visitTravelTime - leaveTurnTime);
-            if (this.modeT < leaveTurnTime) {
+            var headLowerTime = Math.min(this.data.headLowerTime, this.data.visitTravelTime - 0.2);
+            var leaveTravelTime = Math.max(0.2, this.data.visitTravelTime - headLowerTime);
+            if (this.modeT < headLowerTime) {
               normal = this.stopNormal;
-              nextNormal = this.slerpNormals(this.stopNormal, this.toNormal, 0.045, this.nextNormal);
+              nextNormal = this.stopNormal;
             } else {
-              var leaveU = (this.modeT - leaveTurnTime) / leaveTravelTime;
-              var circleU = THREE.MathUtils.clamp(leaveU, 0, 1);
+              var leaveU = THREE.MathUtils.clamp(
+                (this.modeT - headLowerTime) / leaveTravelTime,
+                0,
+                1
+              );
               var returnNext = this.circleNormalAt(this.returnAngle + 0.075, this.nextNormal);
-              normal = this.slerpNormals(this.fromNormal, this.toNormal, circleU, this.currentNormal);
+              normal = this.slerpNormals(this.fromNormal, this.toNormal, leaveU, this.currentNormal);
               nextNormal = this.slerpNormals(
                 this.fromNormal,
                 returnNext,
-                this.ease01(Math.min(1, leaveU + 0.015)),
+                Math.min(1, leaveU + 0.015),
                 this.nextNormal
               );
             }
@@ -1732,7 +1733,7 @@
             walkAmountTarget = 0;
           } else if (this.mode === "toCircle") {
             walkAmountTarget = this.ease01(
-              (this.modeT - this.data.leaveTurnTime) / (this.data.visitTravelTime * 0.18)
+              (this.modeT - this.data.headLowerTime) / (this.data.visitTravelTime * 0.34)
             );
           }
           this.walkAmountCurrent +=
@@ -1807,7 +1808,7 @@
             } else if (this.mode === "hold") {
               lookAmount = 1;
             } else if (this.mode === "toCircle") {
-              lookAmount = 1 - this.ease01(this.modeT / this.data.leaveTurnTime);
+              lookAmount = 1 - this.ease01(this.modeT / this.data.headLowerTime);
             }
             var walkHeadYaw = Math.sin(this.angle * 1.45) * 18;
             var gazeHeadYaw = Math.sin(this.modeT * 0.42) * 2.7;
@@ -1839,31 +1840,6 @@
           var nextAngle = angle;
           while (nextAngle <= afterAngle) nextAngle += Math.PI * 2;
           return nextAngle;
-        },
-        removeTreeNearestStop: function () {
-          if (this.removedCameraTree || !this.hasFixedStopNormal) return;
-          var trees = document.getElementById("trees");
-          if (!trees) return;
-
-          var bestTree = null;
-          var bestDistSq = Infinity;
-          var treeNormal = new THREE.Vector3();
-          var treeEls = trees.children;
-          for (var i = 0; i < treeEls.length; i++) {
-            var tree = treeEls[i];
-            if (!tree || !tree.object3D) continue;
-            treeNormal.copy(tree.object3D.position).normalize();
-            var distSq = treeNormal.distanceToSquared(this.fixedStopNormal);
-            if (distSq < bestDistSq) {
-              bestDistSq = distSq;
-              bestTree = tree;
-            }
-          }
-
-          if (bestTree && bestDistSq < 0.16) {
-            bestTree.parentNode.removeChild(bestTree);
-            this.removedCameraTree = true;
-          }
         },
         slerpNormals: function (from, to, amount, target) {
           var dot = THREE.MathUtils.clamp(from.dot(to), -1, 1);
@@ -4152,6 +4128,110 @@
           }
           trees.appendChild(tree);
           placeYUpEntityOnPlanet(tree, normal, 0.02);
+          return tree;
+        }
+
+        function humanCircleNormalAt(angle, target) {
+          var longitude = Math.cos(angle) * 0.46;
+          var latitude = 0.55 + Math.sin(angle) * 0.3;
+          var cosLat = Math.cos(latitude);
+          return target
+            .set(
+              Math.sin(longitude) * cosLat,
+              Math.sin(latitude),
+              Math.cos(longitude) * cosLat
+            )
+            .normalize();
+        }
+
+        function slerpUnitNormals(from, to, amount, target) {
+          var dot = THREE.MathUtils.clamp(from.dot(to), -1, 1);
+          var omega = Math.acos(dot);
+          if (omega < 1e-6) return target.copy(to);
+          var sinOmega = Math.sin(omega);
+          return target
+            .copy(from)
+            .multiplyScalar(Math.sin((1 - amount) * omega) / sinOmega)
+            .add(
+              to
+                .clone()
+                .multiplyScalar(Math.sin(amount * omega) / sinOmega)
+            )
+            .normalize();
+        }
+
+        function estimateInitialHumanStopNormal(target) {
+          var cameraEl = document.querySelector("[camera]");
+          if (!cameraEl || !cameraEl.object3D || !worldRoot.object3D) return null;
+
+          cameraEl.object3D.updateMatrixWorld(true);
+          worldRoot.object3D.updateMatrixWorld(true);
+
+          var cameraLocal = new THREE.Vector3();
+          cameraEl.object3D.getWorldPosition(cameraLocal);
+          worldRoot.object3D.worldToLocal(cameraLocal);
+
+          var cameraForward = new THREE.Vector3(0, 0, -1)
+            .applyQuaternion(cameraEl.object3D.quaternion)
+            .normalize();
+
+          var b = cameraLocal.dot(cameraForward);
+          var c = cameraLocal.lengthSq() - Math.pow(PLANET_RADIUS + 0.12, 2);
+          var disc = b * b - c;
+          if (disc < 0) return null;
+
+          var t = -b - Math.sqrt(disc);
+          if (t < 0) t = -b + Math.sqrt(disc);
+          if (t < 0) return null;
+
+          var visitNormal = cameraLocal
+            .clone()
+            .add(cameraForward.multiplyScalar(t))
+            .normalize();
+          var firstVisitStart = humanCircleNormalAt(0.27 * 9, new THREE.Vector3());
+          return slerpUnitNormals(firstVisitStart, visitNormal, 0.73, target);
+        }
+
+        function normalFromLonLat(longitude, latitude, target) {
+          var cosLat = Math.cos(latitude);
+          return target
+            .set(
+              Math.sin(longitude) * cosLat,
+              Math.sin(latitude),
+              Math.cos(longitude) * cosLat
+            )
+            .normalize();
+        }
+
+        function isNearCameraStopTreeClearing(normal) {
+          return (
+            cameraRiverbankTreeNormal &&
+            normal.distanceToSquared(cameraRiverbankTreeNormal) < 0.12
+          );
+        }
+
+        function normalAcrossRiverFrom(normal, target) {
+          var longitude = normalizeLonRad(Math.atan2(normal.x, normal.z));
+          var latitude = Math.asin(THREE.MathUtils.clamp(normal.y, -1, 1));
+          var riverLat = riverLatitude(longitude);
+          var side = latitude >= riverLat ? 1 : -1;
+          var bankGap = Math.max(Math.abs(latitude - riverLat), 0.16);
+          var newLatitude = THREE.MathUtils.clamp(
+            riverLat - side * (bankGap + 0.18),
+            -1.35,
+            1.35
+          );
+          return normalFromLonLat(longitude, newLatitude, target);
+        }
+
+        function trackCameraStopTreeCandidate(tree, normal) {
+          if (!tree || !isNearCameraStopTreeClearing(normal)) return;
+          var distSq = normal.distanceToSquared(cameraRiverbankTreeNormal);
+          if (distSq < cameraStopTreeBestDistSq) {
+            cameraStopTreeBestDistSq = distSq;
+            cameraStopTreeCandidate = tree;
+            cameraStopTreeCandidateNormal.copy(normal);
+          }
         }
 
         function createMountain(normal) {
@@ -5292,7 +5372,7 @@
                 opts.phase
             );
 
-            /* Torso — same 10 stacked cylinders as `#human`; solid shirt */
+            /* Torso — same 8 stacked cylinders as `#human`; solid shirt */
             var torso = document.createElement("a-entity");
             torso.setAttribute("position", "0 0.45 0");
             var ti;
@@ -7179,6 +7259,16 @@
           appendVegGardenChicken("outside", 94);
         }
 
+        var cameraRiverbankTreeNormal = normalFromLonLat(
+          3.673,
+          0.389,
+          new THREE.Vector3()
+        );
+        var cameraStopTreeCandidate = null;
+        var cameraStopTreeCandidateNormal = new THREE.Vector3();
+        var cameraStopTreeBestDistSq = Infinity;
+        var relocatedTreeNormal = new THREE.Vector3();
+
         var placed = [];
         var attempts = 0;
         while (placed.length < 260 && attempts < 10000) {
@@ -7217,7 +7307,8 @@
           if (isNearCampfire(longitude, latitude)) continue;
           if (inVegetableGardenClearing(longitude, latitude)) continue;
 
-          createTree(normal, 1.12 + random() * 0.48);
+          var treeScale = 1.12 + random() * 0.48;
+          trackCameraStopTreeCandidate(createTree(normal, treeScale), normal);
           placed.push({ longitude: longitude, latitude: latitude });
         }
 
@@ -7267,10 +7358,19 @@
             if (isNearCampfire(lo, la)) continue;
             if (inVegetableGardenClearing(lo, la)) continue;
 
-            createTree(nFill, 1.12 + random() * 0.48);
+            var fillTreeScale = 1.12 + random() * 0.48;
+            trackCameraStopTreeCandidate(createTree(nFill, fillTreeScale), nFill);
             placed.push({ longitude: lo, latitude: la });
             fillPlaced++;
           }
+        }
+
+        if (cameraStopTreeCandidate) {
+          placeYUpEntityOnPlanet(
+            cameraStopTreeCandidate,
+            normalAcrossRiverFrom(cameraStopTreeCandidateNormal, relocatedTreeNormal),
+            0.02
+          );
         }
 
         createVegetableGardenInClearing(vegGardenNormal);
