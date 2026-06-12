@@ -1926,19 +1926,28 @@
         holdHeadLook: function (time, nightAmount, fireTime) {
           var fireLook = THREE.MathUtils.smoothstep(nightAmount, 0.18, 0.58);
           var ft = fireTime === undefined ? time : fireTime;
-          if (fireLook > 0.001 && !this.fireReturnToCamera(ft)) {
-            var signPhase = this.fireSignPhase(ft);
-            var scanYaw =
-              Math.sin(ft * 0.48) * 4.8 +
-              Math.sin(ft * 0.18 + 1.7) * 2.4;
-            var scanPitch =
-              10 +
-              Math.sin(ft * 0.38 + 0.4) * 2.4 +
-              Math.sin(ft * 0.14) * 1.1;
-            return {
-              pitch: THREE.MathUtils.lerp(32, scanPitch + signPhase * 1.5, fireLook),
-              yaw: scanYaw * fireLook
-            };
+          if (fireLook > 0.001) {
+            if (!this.fireReturnToCamera(ft)) {
+              var signPhase = this.fireSignPhase(ft);
+              var scanYaw =
+                Math.sin(ft * 0.48) * 4.8 +
+                Math.sin(ft * 0.18 + 1.7) * 2.4;
+              var scanPitch =
+                10 +
+                Math.sin(ft * 0.38 + 0.4) * 2.4 +
+                Math.sin(ft * 0.14) * 1.1;
+              return {
+                pitch: THREE.MathUtils.lerp(32, scanPitch + signPhase * 1.5, fireLook),
+                yaw: scanYaw * fireLook
+              };
+            }
+            if (!this.fireHeadReturnToCamera(ft)) {
+              var settle = this.ease01((ft - 93) / 3.2);
+              return {
+                pitch: THREE.MathUtils.lerp(13, 8, settle) * fireLook,
+                yaw: Math.sin(ft * 0.42) * 0.9 * (1 - settle) * fireLook
+              };
+            }
           }
 
           var basePitch = 32 + Math.sin(time * 0.31) * 0.55;
@@ -1982,6 +1991,9 @@
         },
         fireReturnToCamera: function (time) {
           return time >= 93;
+        },
+        fireHeadReturnToCamera: function (time) {
+          return time >= 96.2;
         },
         fireHoldNormalAt: function (time, fireAmount, target) {
           return target.copy(this.stopNormal);
@@ -2427,6 +2439,7 @@
           this.peckPhase = this.stridePhase * 1.73;
           this.peckTilt = 0;
           this.smoothYaw = 0;
+          this.moveBlend = 0;
 
           var spawn =
             this.data.mode === "outside"
@@ -2606,8 +2619,6 @@
           var moving = dist > arrivingR;
 
           if (!moving) {
-            pos.x = this.targetX;
-            pos.z = this.targetZ;
             this.idleLeft -= dt;
             this.stridePhase += dt * (2.25 + Math.sin(this.peckPhase) * 0.35);
             this.peckPhase += dt * (2.95 + Math.sin(this.stridePhase * 0.82) * 0.42);
@@ -2640,13 +2651,18 @@
             this.peckTilt *= Math.pow(0.905, dt * 60);
           }
 
+          var moveTarget = moving ? 1 : 0;
+          var moveEase = moving ? 10.5 : 6.4;
+          this.moveBlend +=
+            (moveTarget - this.moveBlend) * (1 - Math.exp(-moveEase * dt));
+          if (!moving && this.moveBlend < 0.012) this.moveBlend = 0;
+
           var stepExtra = 0;
           var bob =
-            Math.abs(Math.sin(this.stridePhase)) * (moving ? 0.0092 : 0.005);
+            Math.abs(Math.sin(this.stridePhase)) * 0.0092 * this.moveBlend;
           pos.y = pathLvl + bob;
 
-          var swing = Math.sin(this.stridePhase) * 46;
-          if (!moving) swing *= 0.45;
+          var swing = Math.sin(this.stridePhase) * 46 * this.moveBlend;
           var legL = this.legL;
           var legR = this.legR;
           var headGrp = this.headGroup;
