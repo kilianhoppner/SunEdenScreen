@@ -342,14 +342,14 @@
           if (NIGHT_RIVER_MATERIAL && NIGHT_RIVER_MATERIAL.uniforms.nightMix) {
             NIGHT_RIVER_MATERIAL.uniforms.nightMix.value = p;
           }
-          var sunOpacity = THREE.MathUtils.clamp(1 - p * 1.08, 0, 1);
-          var moonOpacity = THREE.MathUtils.clamp((p - 0.04) / 0.86, 0, 1);
+          var sunOpacity = THREE.MathUtils.clamp(1 - p, 0, 1);
+          var moonOpacity = THREE.MathUtils.clamp(p, 0, 1);
           if (this.sun) {
             this.sun.object3D.visible = sunOpacity > 0.001;
             this.sun.object3D.position.set(
-              THREE.MathUtils.lerp(18, 10, p),
-              THREE.MathUtils.lerp(22, -10, p),
-              THREE.MathUtils.lerp(-38, -28, p)
+              -58,
+              THREE.MathUtils.lerp(148, 8, p),
+              -58
             );
             this.setGroupOpacity(this.sun, sunOpacity);
             var sunLight = this.sun.querySelector("[light]");
@@ -364,22 +364,22 @@
           if (this.moon) {
             this.moon.object3D.visible = moonOpacity > 0.001;
             this.moon.object3D.position.set(
-              THREE.MathUtils.lerp(-20, -14, p),
-              THREE.MathUtils.lerp(-8, 20, p),
-              THREE.MathUtils.lerp(-28, -36, p)
+              -58,
+              THREE.MathUtils.lerp(8, 148, p),
+              -58
             );
           }
           if (this.moonCore)
             this.moonCore.setAttribute(
               "material",
-              "shader: standard; roughness: 0.52; metalness: 0; emissive: #DDE6F5; emissiveIntensity: " +
-                THREE.MathUtils.lerp(0, 0.82, p) +
+              "shader: standard; roughness: 0.58; metalness: 0; emissive: #E7D9BC; emissiveIntensity: " +
+                THREE.MathUtils.lerp(0, 0.95, p) +
                 "; opacity: " +
-                moonOpacity +
-                "; transparent: true"
+                0.62 * moonOpacity +
+                "; transparent: true; fog: false"
             );
-          this.setFixedOpacity(this.moonHalo, 0.34 * moonOpacity);
-          this.setFixedOpacity(this.moonOuterHalo, 0.14 * moonOpacity);
+          this.setFixedOpacity(this.moonHalo, 0.22 * moonOpacity);
+          this.setFixedOpacity(this.moonOuterHalo, 0.08 * moonOpacity);
           this.setNightOpacity(p);
           this.setSmokeOpacity(p);
         }
@@ -1636,6 +1636,25 @@
           this.hasFixedStopNormal = false;
           this.smoothedForward = new THREE.Vector3();
           this.hasSmoothedForward = false;
+          this.lastSurfacePosition = new THREE.Vector3();
+          this.hasLastSurfacePosition = false;
+          this.moveSpeedSm = 0;
+          this.fireT = 0;
+          this.fireActive = false;
+          var houseCosLat = Math.cos(this.data.latitude);
+          this.houseNormal = new THREE.Vector3(
+            Math.sin(this.data.longitude) * houseCosLat,
+            Math.sin(this.data.latitude),
+            Math.cos(this.data.longitude) * houseCosLat
+          ).normalize();
+          var signLon = this.data.longitude - 0.92;
+          var signLat = this.data.latitude - 0.03;
+          var signCosLat = Math.cos(signLat);
+          this.signNormal = new THREE.Vector3(
+            Math.sin(signLon) * signCosLat,
+            Math.sin(signLat),
+            Math.cos(signLon) * signCosLat
+          ).normalize();
         },
         tick: function (_, deltaMs) {
           var dt = Math.min((deltaMs || 16) / 1000, 0.055);
@@ -1648,6 +1667,14 @@
           var circleNext = this.circleNormalAt(this.angle + 0.075, this.nextNormal);
           var normal = circleNow;
           var nextNormal = circleNext;
+          var nightTurn = THREE.MathUtils.smoothstep(NIGHT_MODE_AMOUNT, 0.18, 0.58);
+          var fireActiveNow = nightTurn > 0.04;
+          if (fireActiveNow) {
+            this.fireT = this.fireActive ? this.fireT + dt : 0;
+          } else {
+            this.fireT = 0;
+          }
+          this.fireActive = fireActiveNow;
 
           if (this.mode === "circle") {
             if (shouldStartVisit) {
@@ -1684,18 +1711,8 @@
             }
           } else if (this.mode === "hold") {
             this.modeT += dt;
-            normal = this.stopNormal;
-            nextNormal = this.stopNormal;
-            if (this.modeT >= this.data.visitHoldTime) {
-              this.mode = "toCircle";
-              this.modeT = 0;
-              this.fromNormal.copy(this.stopNormal);
-              this.returnAngle = this.forwardLoopAngle(
-                this.data.resumeFrontAngle,
-                this.angle + this.data.resumeAdvance
-              );
-              this.circleNormalAt(this.returnAngle, this.toNormal);
-            }
+            normal = this.fireHoldNormalAt(this.fireT, nightTurn, this.currentNormal);
+            nextNormal = normal;
           } else if (this.mode === "toCircle") {
             this.modeT += dt;
             var headLowerTime = Math.min(this.data.headLowerTime, this.data.visitTravelTime - 0.2);
@@ -1709,8 +1726,8 @@
                 0,
                 1
               );
-              var leaveU = this.accelRamp01(rawLeave, 0.32);
-              var lookAheadU = this.accelRamp01(Math.min(1, rawLeave + 0.018), 0.32);
+              var leaveU = rawLeave;
+              var lookAheadU = Math.min(1, rawLeave + 0.018);
               var returnNext = this.circleNormalAt(this.returnAngle + 0.075, this.nextNormal);
               normal = this.slerpNormals(this.fromNormal, this.toNormal, leaveU, this.currentNormal);
               nextNormal = this.slerpNormals(
@@ -1754,13 +1771,36 @@
           if (walkAmountTarget === 0 && this.walkAmountCurrent < 0.012) {
             this.walkAmountCurrent = 0;
           }
-          this.walkPhase += dt * 5.0 * Math.pow(this.walkAmountCurrent, 1.28);
-
           var position = normal.clone().multiplyScalar(PLANET_RADIUS + 0.12);
           var nextPosition = nextNormal.clone().multiplyScalar(PLANET_RADIUS + 0.12);
+          var surfaceMoveSpeed = 0;
+          if (this.hasLastSurfacePosition && dt > 0) {
+            surfaceMoveSpeed = position.distanceTo(this.lastSurfacePosition) / dt;
+          }
+          this.lastSurfacePosition.copy(position);
+          this.hasLastSurfacePosition = true;
+          this.moveSpeedSm +=
+            (surfaceMoveSpeed - this.moveSpeedSm) *
+            (1 - Math.exp(-5.2 * dt));
+          var strideSpeed = THREE.MathUtils.clamp(this.moveSpeedSm / 1.05, 0, 1);
+          if (this.mode === "hold") strideSpeed = Math.min(strideSpeed, 0.22 * nightTurn);
+          this.walkPhase +=
+            dt *
+            (1.45 + strideSpeed * 4.2) *
+            Math.pow(Math.max(this.walkAmountCurrent, 0.001), 1.12);
+
           var forward;
           if (this.mode === "hold") {
             forward = this.cameraLocal.clone().sub(position);
+            if (nightTurn > 0.001 && !this.fireReturnToCamera(this.fireT)) {
+              var lookNormal =
+                this.fireSignPhase(this.fireT) > 0.5
+                  ? this.signNormal
+                  : this.houseNormal;
+              var lookPosition = lookNormal.clone().multiplyScalar(PLANET_RADIUS + 0.12);
+              var fireForward = lookPosition.sub(position);
+              forward.lerp(fireForward, nightTurn);
+            }
           } else {
             forward = nextPosition.clone().sub(position);
           }
@@ -1781,7 +1821,12 @@
               this.smoothedForward.copy(forward);
             } else {
               this.smoothedForward.normalize();
-              this.smoothedForward.lerp(forward, 1 - Math.exp(-2.35 * dt)).normalize();
+              this.smoothedForward
+                .lerp(
+                  forward,
+                  1 - Math.exp(-(this.mode === "hold" ? 1.15 : 2.35) * dt)
+                )
+                .normalize();
             }
           }
           forward.copy(this.smoothedForward);
@@ -1800,16 +1845,39 @@
               1 - Math.exp(-this.data.turnSmooth * dt)
             );
           }
+          var stepBob =
+            Math.abs(Math.sin(this.walkPhase)) *
+            0.035 *
+            this.walkAmountCurrent *
+            (this.mode === "hold" ? 0.42 : 1);
+          var fireWeightBob =
+            0;
           this.el.object3D.position.add(
-            normal.clone().multiplyScalar(Math.abs(Math.sin(this.walkPhase)) * 0.035 * this.walkAmountCurrent)
+            normal.clone().multiplyScalar(stepBob + fireWeightBob)
           );
 
-          var swing = Math.sin(this.walkPhase) * 26 * this.walkAmountCurrent;
+          var swing =
+            Math.sin(this.walkPhase) *
+            26 *
+            this.walkAmountCurrent *
+            (0.35 + strideSpeed * 0.65);
           var leftLeg = this.el.querySelector(".left-leg");
           var rightLeg = this.el.querySelector(".right-leg");
           var leftArm = this.el.querySelector(".left-arm");
           var rightArm = this.el.querySelector(".right-arm");
           var head = this.el.querySelector(".human-head");
+          var torso = this.el.querySelector(".human-torso");
+          if (torso) {
+            var breathe = Math.sin(this.modeT * 1.25);
+            var breathAmount =
+              this.mode === "hold" ? 0.008 * (1 - nightTurn * 0.55) : 0;
+            torso.object3D.position.set(0, 0.45 + breathe * breathAmount, 0);
+            torso.object3D.scale.set(
+              1 + Math.max(0, breathe) * breathAmount * 0.85,
+              1 + breathe * breathAmount * 0.52,
+              1 + Math.max(0, breathe) * breathAmount * 0.45
+            );
+          }
           if (leftLeg) leftLeg.setAttribute("rotation", swing + " 0 0");
           if (rightLeg) rightLeg.setAttribute("rotation", (-swing) + " 0 0");
           if (leftArm) leftArm.setAttribute("rotation", (-swing * 0.8) + " 0 10");
@@ -1825,9 +1893,15 @@
             }
             var walkHeadYaw = Math.sin(this.angle * 1.45) * 18;
             var gazeHeadYaw = Math.sin(this.modeT * 0.42) * 2.7;
+            var gazeHeadPitch = 29 + Math.sin(this.modeT * 0.48) * 1.15;
+            if (this.mode === "hold") {
+              var gaze = this.holdHeadLook(this.modeT, NIGHT_MODE_AMOUNT, this.fireT);
+              gazeHeadYaw = gaze.yaw;
+              gazeHeadPitch = gaze.pitch;
+            }
             var headYawTarget = walkHeadYaw * (1 - lookAmount) + gazeHeadYaw * lookAmount;
-            var headPitchTarget = (29 + Math.sin(this.modeT * 0.48) * 1.15) * lookAmount;
-            var headBlend = 1 - Math.exp(-(this.mode === "toCircle" ? 4.6 : 1.55) * dt);
+            var headPitchTarget = gazeHeadPitch * lookAmount;
+            var headBlend = 1 - Math.exp(-(this.mode === "toCircle" ? 4.6 : 1.35) * dt);
             this.headYawCurrent += (headYawTarget - this.headYawCurrent) * headBlend;
             this.headPitchCurrent += (headPitchTarget - this.headPitchCurrent) * headBlend;
             head.setAttribute("rotation", this.headPitchCurrent + " " + this.headYawCurrent + " 0");
@@ -1849,11 +1923,68 @@
           var t = THREE.MathUtils.clamp(value, 0, 1);
           return t * t * t * (t * (t * 6 - 15) + 10);
         },
-        accelRamp01: function (value, ramp) {
-          var t = THREE.MathUtils.clamp(value, 0, 1);
-          var r = THREE.MathUtils.clamp(ramp || 0.12, 0.001, 0.8);
-          var p = t < r ? (t * t) / (2 * r) : t - r * 0.5;
-          return p / (1 - r * 0.5);
+        holdHeadLook: function (time, nightAmount, fireTime) {
+          var fireLook = THREE.MathUtils.smoothstep(nightAmount, 0.18, 0.58);
+          var ft = fireTime === undefined ? time : fireTime;
+          if (fireLook > 0.001 && !this.fireReturnToCamera(ft)) {
+            var signPhase = this.fireSignPhase(ft);
+            var scanYaw =
+              Math.sin(ft * 0.48) * 4.8 +
+              Math.sin(ft * 0.18 + 1.7) * 2.4;
+            var scanPitch =
+              10 +
+              Math.sin(ft * 0.38 + 0.4) * 2.4 +
+              Math.sin(ft * 0.14) * 1.1;
+            return {
+              pitch: THREE.MathUtils.lerp(32, scanPitch + signPhase * 1.5, fireLook),
+              yaw: scanYaw * fireLook
+            };
+          }
+
+          var basePitch = 32 + Math.sin(time * 0.31) * 0.55;
+          var baseYaw =
+            Math.sin(time * 0.23) * 0.7 +
+            Math.sin(time * 0.071 + 1.8) * 0.45;
+          var cycle = 47;
+          var t = time % cycle;
+          var glances = [
+            { start: 9.4, dur: 3.1, pitch: 16, yaw: -13 },
+            { start: 23.8, dur: 4.4, pitch: 20, yaw: 10 },
+            { start: 38.6, dur: 2.7, pitch: 13, yaw: 16 }
+          ];
+          var pitch = basePitch;
+          var yaw = baseYaw;
+          for (var i = 0; i < glances.length; i++) {
+            var g = glances[i];
+            if (t >= g.start && t <= g.start + g.dur) {
+              var u = (t - g.start) / g.dur;
+              var bell = Math.pow(Math.sin(Math.PI * u), 1.18);
+              pitch = THREE.MathUtils.lerp(basePitch, g.pitch, bell);
+              yaw = THREE.MathUtils.lerp(baseYaw, g.yaw, bell);
+              break;
+            }
+          }
+          return {
+            pitch: pitch + Math.sin(time * 0.83) * 0.45,
+            yaw: yaw + Math.sin(time * 0.49 + 2.1) * 0.55
+          };
+        },
+        fireSignPhase: function (time) {
+          var start = 72;
+          var arrive = 77;
+          var holdEnd = 87;
+          var returnEnd = 93;
+          if (time < start) return 0;
+          if (time < arrive) return this.ease01((time - start) / (arrive - start));
+          if (time < holdEnd) return 1;
+          if (time < returnEnd) return 1 - this.ease01((time - holdEnd) / (returnEnd - holdEnd));
+          return 0;
+        },
+        fireReturnToCamera: function (time) {
+          return time >= 93;
+        },
+        fireHoldNormalAt: function (time, fireAmount, target) {
+          return target.copy(this.stopNormal);
         },
         forwardLoopAngle: function (angle, afterAngle) {
           var nextAngle = angle;
@@ -2243,8 +2374,8 @@
 
 
       /*
-       * Wild chickens wander in tangent space of the veggie patch (+Y along planet normal via parent).
-       * Bounds match createVegetableGardenInClearing — adjust both if beds/fence shift.
+       * Wild chickens wander in tangent space of a ground anchor (+Y along planet normal via parent).
+       * The old vegetable beds are gone, so their movement stays on grass-level ground.
        */
       AFRAME.registerComponent("veg-garden-chicken-walk", {
         schema: {
@@ -2255,7 +2386,9 @@
             default: -999
           },
           speed: { type: "number", default: 0.195 },
-          wanderId: { type: "int", default: 0 }
+          wanderId: { type: "int", default: 0 },
+          roamX: { type: "number", default: 1.95 },
+          roamZ: { type: "number", default: 1.02 }
         },
         init: function () {
           this._fenceLoX = -1.38;
@@ -2403,44 +2536,30 @@
           );
         },
         sampleInside: function () {
+          var rx = this.data.roamX * 0.58;
+          var rz = this.data.roamZ * 0.54;
           return {
-            x:
-              this._innerLoX +
-              this._rnd() * (this._innerHiX - this._innerLoX),
-            z:
-              this._innerLoZ +
-              this._rnd() * (this._innerHiZ - this._innerLoZ)
+            x: (this._rnd() * 2 - 1) * rx,
+            z: (this._rnd() * 2 - 1) * rz
           };
         },
         sampleOutside: function () {
           var px;
           var pz;
           var qi;
-          /* ~14–29% accepts inside fence (path/beds); rest keeps birds on perimeter grass */
-          var innerLottery =
-            0.14 +
-            ((((this.data.wanderId * 7949 + 433) >>> 0) % 151) /
-              1000);
-          for (qi = 0; qi < 230; qi++) {
-            px = -1.96 + this._rnd() * 3.92;
-            pz = -0.93 + this._rnd() * 1.94;
-            if (Math.abs(px) > 2.08 || Math.abs(pz) > 1.05) continue;
-            if (
-              this.chickenInsideFenceBox(px, pz) &&
-              this._rnd() > innerLottery
-            )
+          var rx = this.data.roamX;
+          var rz = this.data.roamZ;
+          var innerRx = rx * 0.38;
+          var innerRz = rz * 0.38;
+          for (qi = 0; qi < 190; qi++) {
+            px = (this._rnd() * 2 - 1) * rx;
+            pz = (this._rnd() * 2 - 1) * rz;
+            if (Math.abs(px) < innerRx && Math.abs(pz) < innerRz)
               continue;
             return { x: px, z: pz };
           }
-          for (qi = 0; qi < 90; qi++) {
-            px = -1.96 + this._rnd() * 3.92;
-            pz = -0.93 + this._rnd() * 1.94;
-            if (Math.abs(px) > 2.08 || Math.abs(pz) > 1.05) continue;
-            if (this.chickenInsideFenceBox(px, pz)) continue;
-            return { x: px, z: pz };
-          }
-          px = ((qi >>> 3) % 2 === 0 ? -1 : 1) * (1.72 + (qi % 7) * 0.03);
-          pz = -0.62 + this._rnd() * 1.52;
+          px = (this._rnd() < 0.5 ? -1 : 1) * (rx * (0.46 + this._rnd() * 0.46));
+          pz = (this._rnd() * 2 - 1) * rz;
           return { x: px, z: pz };
         },
         /*
@@ -2521,89 +2640,10 @@
             this.peckTilt *= Math.pow(0.905, dt * 60);
           }
 
-          var bedLvl = this.data.bedFeetY;
-          var canHopBed = bedLvl > pathLvl + 0.015 && bedLvl > -900;
-          var hullDist = this.nearestBedHullSurfaceDist(pos.x, pos.z);
-          var hullNear = canHopBed && hullDist < 0.22;
-          var tgtOnSoil = this.chickenOnSoilTight(
-            this.targetX,
-            this.targetZ
-          );
-          var overlapsBed =
-            canHopBed &&
-            this.chickenOverlapsBedPadded(
-              pos.x,
-              pos.z,
-              this._bedHopPad
-            );
-          /* Include apron around timber so height eases before the rim */
-          var apronApproach = canHopBed && hullNear && tgtOnSoil;
-          var wantBedSurf =
-            overlapsBed || apronApproach ? 1 : 0;
-          var hopTau = Math.min(
-            1,
-            dt * (wantBedSurf ? (moving ? 11.8 : 9.2) : 6.4)
-          );
-          this.surfaceBlend += (wantBedSurf - this.surfaceBlend) * hopTau;
-          var baseFeetY = THREE.MathUtils.lerp(
-            pathLvl,
-            bedLvl,
-            canHopBed ? this.surfaceBlend : 0
-          );
-
+          var stepExtra = 0;
           var bob =
             Math.abs(Math.sin(this.stridePhase)) * (moving ? 0.0092 : 0.005);
-
-          var stepExtra = 0;
-          var STEP_WIN = 0.32;
-          var hopLiftMax = THREE.MathUtils.clamp(
-            Math.abs(bedLvl - pathLvl) * 0.74 + 0.017,
-            0.02,
-            0.069
-          );
-          if (this._stepHopProg > 1e-6) {
-            this._stepHopProg += dt / STEP_WIN;
-            var uh = THREE.MathUtils.clamp(this._stepHopProg, 0, 1);
-            stepExtra =
-              this._stepHopAmp *
-              Math.pow(Math.sin(Math.PI * uh), 2);
-            if (this._stepHopProg >= 1 - 1e-5) {
-              this._stepHopProg = 0;
-              this._stepHopAmp = 0;
-              this._stepHopCooldown = 0.42;
-            }
-          } else if (
-            canHopBed &&
-            moving &&
-            this._stepHopCooldown <= 1e-7
-          ) {
-            var curSoil = this.chickenOnSoilTight(pos.x, pos.z);
-            var tgtSoil = this.chickenOnSoilTight(
-              this.targetX,
-              this.targetZ
-            );
-            var innerG = this.soilBedInteriorGap(pos.x, pos.z);
-
-            /* Step up at outer rim (path ⇄ timber edge); step down leaving soil box */
-            var needStepUp =
-              !curSoil &&
-              tgtSoil &&
-              hullDist < 0.172 &&
-              hullDist >= 0;
-            var needStepDown =
-              curSoil && !tgtSoil && innerG < 0.115;
-
-            if (needStepUp || needStepDown) {
-              this._stepHopAmp = hopLiftMax;
-              this._stepHopProg = Math.min(dt / STEP_WIN, 1);
-              var ust = THREE.MathUtils.clamp(this._stepHopProg, 0, 1);
-              stepExtra =
-                this._stepHopAmp *
-                Math.pow(Math.sin(Math.PI * ust), 2);
-            }
-          }
-
-          pos.y = baseFeetY + bob + stepExtra;
+          pos.y = pathLvl + bob;
 
           var swing = Math.sin(this.stridePhase) * 46;
           if (!moving) swing *= 0.45;
@@ -2805,36 +2845,6 @@
           var tw = Math.PI * 2;
           var d = Math.abs(normalizeLonRad(a) - normalizeLonRad(b));
           return Math.min(d, tw - d);
-        }
-
-        function riverFloaterBridgeSubmerge01(lon, lat, woodenSites, riverLatFn) {
-          var best = 0;
-          var si;
-          for (si = 0; si < woodenSites.length; si++) {
-            var site = woodenSites[si];
-            var stretch =
-              site.spanStretch !== undefined && site.spanStretch !== null
-                ? site.spanStretch
-                : 1;
-            var dLonB = lonDeltaWrapped(lon, site.lon);
-            var dipFullHalf = 0.064 + 0.022 * stretch;
-            var dipHardHalf = 0.088 + 0.028 * stretch;
-            if (dLonB > dipHardHalf) continue;
-            var latRiverAt = riverLatFn(lon);
-            var latBandWater = 0.11 * stretch + 0.058;
-            if (Math.abs(lat - latRiverAt) > latBandWater) continue;
-            var bump;
-            if (dLonB <= dipFullHalf) bump = 1;
-            else {
-              var tt =
-                (dLonB - dipFullHalf) /
-                Math.max(1e-6, dipHardHalf - dipFullHalf);
-              tt = Math.max(0, Math.min(1, tt));
-              bump = 1 - tt * tt * (3 - 2 * tt);
-            }
-            if (bump > best) best = bump;
-          }
-          return best;
         }
 
         function riverPoint(longitude, latitude, heightOffset) {
@@ -3585,6 +3595,10 @@
           setTransform(tube, [0, 0.036, 0.018], [Math.PI / 2, 0, 0], null);
           pose.appendChild(tube);
 
+          outer.setAttribute("scale", "1.74 1.74 1.74");
+          outer.object3D.scale.setScalar(1.74);
+          return outer;
+
           var charRoot = entity(pose, [0, -0.044, 0.056], null, null);
           var torsoGrp = entity(charRoot, [0, 0.395, 0], null, null);
           var torsoYs = [
@@ -3670,20 +3684,7 @@
           return outer;
         }
 
-        var riverFloaterEl = createRiverFloaterCharacterEntity();
-        lake.appendChild(riverFloaterEl);
-        var riverFloater = {
-          mesh: riverFloaterEl.object3D,
-          el: riverFloaterEl,
-          phase: 4.05 + random() * 0.85,
-          speed: 0.019 + random() * 0.008,
-          dir: 1,
-          lateral: (random() - 0.5) * 0.038,
-          wobble: random() * Math.PI * 2,
-          smoothPos: null,
-          smoothFwd: null,
-          bridgeSubmerge: 0
-        };
+        var riverFloater = null;
 
         function createBeachBallMesh() {
           var group = new THREE.Group();
@@ -3864,7 +3865,7 @@
             beachBall.mesh.quaternion.slerp(qBasisB.multiply(qSpinB).multiply(qRollB), rotSmoothRate);
           }
 
-          /* Striped-shirt sunbather drifting with current — tube + reclined rig */
+          /* Orange inflatable ring drifting with current */
           if (riverFloater && riverFloater.mesh) {
             var fl = riverFloater;
             var lonF = fl.phase + tSec * fl.speed * fl.dir;
@@ -3880,20 +3881,6 @@
               Math.sin(tSec * 0.98 + fl.wobble * 1.15) * 0.008 +
               Math.sin(tSec * 2.05 + fl.wobble) * 0.004;
             var waterHF = 0.034 + bobF;
-
-            var bridgeSubRaw = riverFloaterBridgeSubmerge01(
-              lonF,
-              latF,
-              woodenBridgeSites,
-              riverLatitude
-            );
-            var subEase =
-              bridgeSubRaw >= fl.bridgeSubmerge - 1e-7
-                ? 1 - Math.exp(-17 * dtSec)
-                : 1 - Math.exp(-3.35 * dtSec);
-            fl.bridgeSubmerge += (bridgeSubRaw - fl.bridgeSubmerge) * subEase;
-            var dip = fl.bridgeSubmerge * 0.38;
-            waterHF -= dip;
 
             var posF = riverPoint(lonF, latF, waterHF);
             var radialTargetF = posF.clone().sub(PLANET_CENTER).normalize();
@@ -3935,8 +3922,7 @@
 
             var rollF =
               (Math.sin(tSec * 0.72 + fl.wobble) * 0.11 +
-                Math.sin(tSec * 1.05 + fl.wobble * 1.4) * 0.06) *
-              (1 - Math.min(1, fl.bridgeSubmerge * 1.05));
+                Math.sin(tSec * 1.05 + fl.wobble * 1.4) * 0.06);
             var qBasisF = new THREE.Quaternion().setFromRotationMatrix(basisF);
             var qRollF = new THREE.Quaternion().setFromAxisAngle(fF, rollF);
             var qComb = qBasisF.clone().multiply(qRollF);
@@ -3949,35 +3935,6 @@
             riverFloater.mesh.position.copy(floaterPosF);
             riverFloater.mesh.quaternion.slerp(targetQF, rotSmoothRate * 0.9);
             riverFloater.mesh.position.addScaledVector(rF, -0.056);
-
-            var poseN = fl.mesh.userData && fl.mesh.userData.pose;
-            var headG = fl.mesh.userData && fl.mesh.userData.headGrp;
-            var baseRx =
-              fl.mesh.userData && fl.mesh.userData.basePoseRx !== undefined
-                ? fl.mesh.userData.basePoseRx
-                : Math.PI * 0.52;
-            if (poseN) {
-              poseN.rotation.x =
-                baseRx + fl.bridgeSubmerge * Math.PI * 0.52;
-            }
-            if (headG) {
-              var ph = fl.wobble;
-              var turnDeg =
-                56 * Math.sin(tSec * 0.27 + ph * 0.85) +
-                30 * Math.sin(tSec * 0.62 + ph * 2.08) +
-                14 * Math.sin(tSec * 0.41 + ph * 1.12);
-              turnDeg = THREE.MathUtils.clamp(turnDeg, -84, 84);
-              var sideBlend = Math.min(1, Math.abs(turnDeg) / 52);
-              var lookUpDeg =
-                9 +
-                15 * Math.sin(tSec * 0.53 + ph * 1.02) -
-                20 * sideBlend * sideBlend;
-              lookUpDeg = THREE.MathUtils.clamp(lookUpDeg, -9, 30);
-              headG.rotation.order = "XYZ";
-              headG.rotation.x = THREE.MathUtils.degToRad(lookUpDeg);
-              headG.rotation.y = THREE.MathUtils.degToRad(turnDeg);
-              headG.rotation.z = 0;
-            }
           }
         }
         if (typeof AFRAME !== "undefined") {
@@ -5705,6 +5662,24 @@
           return dLong * dLong + dLat * dLat < 0.168;
         }
 
+        function isInHouseSignNoTreeZone(longitude, latitude) {
+          var dLongHouse = lonDeltaWrapped(longitude, houseLongitude);
+          var dLatHouse = latitude - houseLatitude;
+          var houseSideLane =
+            dLongHouse > 0.24 &&
+            dLongHouse < 0.98 &&
+            Math.abs(dLatHouse) < 0.52;
+
+          var dLongSign = lonDeltaWrapped(longitude, signLon);
+          var dLatSign = latitude - signLat;
+          var signFlowerClearing =
+            (dLongSign * dLongSign) / (0.5 * 0.5) +
+              (dLatSign * dLatSign) / (0.36 * 0.36) <
+            1;
+
+          return houseSideLane || signFlowerClearing;
+        }
+
         function isNearUmbrellaChair(longitude, latitude) {
           var dLong = Math.abs(longitude - umbrellaLongitude);
           dLong = Math.min(dLong, Math.PI * 2 - dLong);
@@ -6817,7 +6792,7 @@
           });
         }
 
-        function createVegetableGardenInClearing(gNorm) {
+        function createVegetableGardenInClearing(gNorm, chickenDefs, roamOutsideX, roamOutsideZ) {
           var vegRoot = document.createElement("a-entity");
           /* Slightly smaller than prior 1.48; keep uniform scale so layout stays proportional. */
           var vegGardenScale = 1.4;
@@ -6826,28 +6801,20 @@
             vegGardenScale + " " + vegGardenScale + " " + vegGardenScale
           );
           vegetableGarden.appendChild(vegRoot);
-          /*
-           * Anchor so the lowest geometry (walk path floor ~local y 0.002) sits flush with the
-           * sphere shell, with a slight downward bias so reads planted not floating:
-           * heightOffset ≈ −embed − (yMin * scale).
-           */
-          var vegGroundYMin = 0.002;
-          var vegSinkIntoSurface = 0.006;
-          placeYUpEntityOnPlanet(
-            vegRoot,
-            gNorm,
-            -(vegSinkIntoSurface + vegGroundYMin * vegGardenScale)
-          );
+          /* Ground anchor for chickens only; no garden geometry remains. */
+          placeYUpEntityOnPlanet(vegRoot, gNorm, -0.006);
 
+          var chickenAnchorLat = Math.asin(THREE.MathUtils.clamp(gNorm.y, -1, 1));
+          var chickenAnchorLon = Math.atan2(gNorm.x, gNorm.z);
           /* −Z “front” faces downslope toward the river along the meridian (same lon). */
-          var riverLatHere = riverLatitude(vegGardenLon);
+          var riverLatHere = riverLatitude(chickenAnchorLon);
           var northTan = new THREE.Vector3(
-            -Math.sin(vegGardenLon) * Math.sin(vegGardenLat),
-            Math.cos(vegGardenLat),
-            -Math.cos(vegGardenLon) * Math.sin(vegGardenLat)
+            -Math.sin(chickenAnchorLon) * Math.sin(chickenAnchorLat),
+            Math.cos(chickenAnchorLat),
+            -Math.cos(chickenAnchorLon) * Math.sin(chickenAnchorLat)
           ).normalize();
           var towardRiver =
-            vegGardenLat > riverLatHere + 1e-6
+            chickenAnchorLat > riverLatHere + 1e-6
               ? northTan.clone().multiplyScalar(-1)
               : northTan.clone();
           towardRiver.normalize();
@@ -6862,293 +6829,23 @@
           );
           vegRoot.object3D.rotateY(yawRiver + 0.07);
 
-          var soilMat =
-            "shader: standard; roughness: 0.92; metalness: 0";
-          var vegNatural =
-            "shader: standard; roughness: 0.68; metalness: 0";
-          var woodMat =
-            "shader: standard; roughness: 0.82; metalness: 0";
-
-          /* Vertical stacking offsets avoid coplanar overlap / z-fighting. */
-          var pathHalfH = 0.024;
-          var pathCenterY = 0.026;
-          var pathTop = pathCenterY + pathHalfH;
-
-          var bedHalfH = 0.052;
-          var bedGapAbovePath = 0.012;
-          var bedCenterY = pathTop + bedGapAbovePath + bedHalfH;
-          var bedTop = bedCenterY + bedHalfH;
-
-          var cropGapAboveSoil = 0.012;
-          var cropHalfH = 0.056;
-          var cropCenterY = bedTop + cropGapAboveSoil + cropHalfH;
-
-          function walkPathStrip() {
-            var path = document.createElement("a-box");
-            path.setAttribute("position", "0 " + pathCenterY + " 0.03");
-            path.setAttribute("width", "0.52");
-            path.setAttribute("height", pathHalfH * 2);
-            path.setAttribute("depth", "1.42");
-            path.setAttribute("color", "#BEB198");
-            path.setAttribute("material", soilMat);
-            vegRoot.appendChild(path);
-          }
-
-          function raisedBed(px, pz, bw, bd, hex) {
-            var b = document.createElement("a-box");
-            b.setAttribute(
-              "position",
-              px + " " + bedCenterY + " " + pz
-            );
-            b.setAttribute("width", bw);
-            b.setAttribute("depth", bd);
-            b.setAttribute("height", bedHalfH * 2);
-            b.setAttribute("color", hex);
-            b.setAttribute("material", soilMat);
-            vegRoot.appendChild(b);
-          }
-
-          walkPathStrip();
-          raisedBed(-0.84, 0.06, 1.08, 1.26, "#5E3D2A");
-          raisedBed(0.84, 0.06, 1.08, 1.26, "#5E3D2A");
-
-          /* Row canopy — mid saturation: greener than dusty olive, calmer than the bright pass */
-          var leafTones = [
-            "#3F9A52",
-            "#368B4C",
-            "#48A358",
-            "#2F7F44",
-            "#52AE5E",
-            "#36914A"
-          ];
-
-          function rowCrop(px, pz, gw, gz, hex) {
-            var l = document.createElement("a-box");
-            l.setAttribute(
-              "position",
-              px + " " + cropCenterY + " " + pz
-            );
-            l.setAttribute("width", gw);
-            l.setAttribute("height", cropHalfH * 2);
-            l.setAttribute("depth", gz);
-            l.setAttribute("color", hex);
-            l.setAttribute(
-              "material",
-              vegNatural +
-                "; emissive: " +
-                hex +
-                "; emissiveIntensity: 0.034"
-            );
-            vegRoot.appendChild(l);
-          }
-
-          rowCrop(-0.84, -0.32, 0.72, 0.26, leafTones[0]);
-          rowCrop(-0.84, -0.02, 0.72, 0.26, leafTones[1]);
-          rowCrop(-0.84, 0.34, 0.72, 0.26, leafTones[2]);
-          rowCrop(0.84, -0.32, 0.72, 0.26, leafTones[3]);
-          rowCrop(0.84, -0.02, 0.72, 0.26, leafTones[4]);
-          rowCrop(0.84, 0.34, 0.72, 0.26, leafTones[5]);
-
-          var cropTopY = cropCenterY + cropHalfH;
-          var vegDetail =
-            "shader: standard; roughness: 0.58; metalness: 0";
-          var fruitMat =
-            "shader: standard; roughness: 0.45; metalness: 0";
-          var lettuceMat =
-            "shader: standard; roughness: 0.64; metalness: 0";
-
-          function saladLeafBit(px, pz, w, h, d, rotY, hex) {
-            var lf = document.createElement("a-box");
-            lf.setAttribute(
-              "position",
-              px + " " + (cropTopY + 0.015) + " " + pz
-            );
-            lf.setAttribute("width", String(w));
-            lf.setAttribute("height", String(h));
-            lf.setAttribute("depth", String(d));
-            lf.setAttribute("rotation", "70 " + rotY + " 8");
-            lf.setAttribute("color", hex);
-            lf.setAttribute(
-              "material",
-              lettuceMat +
-                "; emissive: " +
-                hex +
-                "; emissiveIntensity: 0.024"
-            );
-            vegRoot.appendChild(lf);
-          }
-
-          function cherryTomato(px, pz, rad) {
-            var t = document.createElement("a-sphere");
-            t.setAttribute(
-              "position",
-              px + " " + (cropTopY + rad * 0.88) + " " + pz
-            );
-            t.setAttribute("radius", String(rad));
-            t.setAttribute("color", "#B71C1C");
-            t.setAttribute(
-              "material",
-              fruitMat +
-                "; emissive: #2c0808; emissiveIntensity: 0.035"
-            );
-            vegRoot.appendChild(t);
-          }
-
-          function babyCarrot(px, pz, rotY) {
-            var ang = rotY !== undefined ? rotY : 0;
-            var root = document.createElement("a-cone");
-            root.setAttribute(
-              "position",
-              px + " " + (cropTopY + 0.039) + " " + pz
-            );
-            root.setAttribute("radius-bottom", "0.029");
-            root.setAttribute("radius-top", "0.0078");
-            root.setAttribute("height", "0.094");
-            root.setAttribute(
-              "rotation",
-              "16 " + ang + " 9"
-            );
-            root.setAttribute("color", "#EF6C00");
-            root.setAttribute("material", vegDetail);
-            vegRoot.appendChild(root);
-            var top = document.createElement("a-sphere");
-            top.setAttribute(
-              "position",
-              px + " " + (cropTopY + 0.09) + " " + pz
-            );
-            top.setAttribute("radius", "0.021");
-            top.setAttribute("scale", "1 0.52 1");
-            top.setAttribute("color", "#4A8E52");
-            top.setAttribute("material", vegNatural);
-            vegRoot.appendChild(top);
-          }
-
-          /* Left bed — salad leaves + cherry tomatoes */
-          saladLeafBit(-1.04, -0.28, 0.14, 0.024, 0.098, 32, "#A8D7B8");
-          saladLeafBit(-0.78, -0.34, 0.12, 0.022, 0.086, -24, "#8BC49A");
-          saladLeafBit(-0.92, -0.04, 0.15, 0.023, 0.09, 95, "#C4EBD4");
-          saladLeafBit(-0.74, 0.04, 0.13, 0.024, 0.082, -48, "#92BF9E");
-          saladLeafBit(-1.0, 0.12, 0.14, 0.022, 0.094, 78, "#B3DFC9");
-          saladLeafBit(-0.86, 0.34, 0.13, 0.024, 0.088, -105, "#9FD2B5");
-          saladLeafBit(-0.72, 0.38, 0.12, 0.022, 0.085, 15, "#7FB290");
-          cherryTomato(-0.98, -0.06, 0.036);
-          cherryTomato(-0.86, 0.04, 0.031);
-          cherryTomato(-0.74, -0.08, 0.034);
-          cherryTomato(-0.82, 0.08, 0.029);
-          cherryTomato(-0.92, 0.02, 0.032);
-
-          /* Upslope crop row (+Z above the lower cherry cluster) */
-          cherryTomato(-0.94, 0.32, 0.033);
-          cherryTomato(-0.82, 0.4, 0.03);
-          cherryTomato(-0.73, 0.28, 0.035);
-
-          /* Right bed — carrot row (rear strips) */
-          babyCarrot(0.66, -0.38, 22);
-          babyCarrot(0.78, -0.28, -8);
-          babyCarrot(0.9, -0.36, 35);
-          babyCarrot(0.72, -0.22, -18);
-          babyCarrot(0.84, -0.3, 12);
-          babyCarrot(0.96, -0.26, -28);
-          babyCarrot(0.58, -0.33, -6);
-          babyCarrot(1.02, -0.31, 41);
-          babyCarrot(0.7, -0.4, -28);
-          babyCarrot(0.92, -0.23, 16);
-
-          vegRoot.appendChild(createNightFlameCluster(-0.86, 0.34, -0.32, 0.72, 160));
-          vegRoot.appendChild(createNightFlameCluster(-0.66, 0.32, 0.18, 0.58, 620));
-          vegRoot.appendChild(createNightFlameCluster(0.78, 0.34, -0.28, 0.66, 980));
-          vegRoot.appendChild(createNightFlameCluster(0.98, 0.32, 0.24, 0.52, 1320));
-          vegRoot.appendChild(createNightSmokePuff(-0.74, 0.58, -0.12, 0.82, 360));
-          vegRoot.appendChild(createNightSmokePuff(0.88, 0.58, -0.02, 0.78, 1040));
-
-          var fxLo = -1.38;
-          var fxHi = 1.38;
-          var fzLo = -0.62;
-          var fzHi = 0.74;
-          var railLowY = bedTop + 0.08;
-          var railHiY = bedTop + 0.34;
-          var railHalfThick = 0.019;
-
-          function fencePost(px, pz) {
-            var po = document.createElement("a-cylinder");
-            po.setAttribute(
-              "position",
-              px + " " + (bedCenterY + bedHalfH + 0.11) + " " + pz
-            );
-            po.setAttribute("radius", "0.038");
-            po.setAttribute("height", "0.52");
-            po.setAttribute("color", "#5D4037");
-            po.setAttribute("material", woodMat);
-            vegRoot.appendChild(po);
-          }
-          fencePost(fxLo, fzLo);
-          fencePost(fxHi, fzLo);
-          fencePost(fxLo, fzHi);
-          fencePost(fxHi, fzHi);
-
-          /* River-facing (−Z): gap for entry; jambs terminate split rails */
-          var gateXL = -0.26;
-          var gateXR = 0.26;
-          fencePost(gateXL, fzLo);
-          fencePost(gateXR, fzLo);
-
-          function fenceRailXSeg(z, y, centerX, halfW) {
-            var r = document.createElement("a-box");
-            r.setAttribute("position", centerX + " " + y + " " + z);
-            r.setAttribute("width", halfW * 2);
-            r.setAttribute("height", "0.036");
-            r.setAttribute("depth", railHalfThick * 2);
-            r.setAttribute("color", "#A1887F");
-            r.setAttribute("material", woodMat);
-            vegRoot.appendChild(r);
-          }
-          function fenceRailX(z, y, halfW) {
-            var r = document.createElement("a-box");
-            r.setAttribute("position", "0 " + y + " " + z);
-            r.setAttribute("width", halfW * 2);
-            r.setAttribute("height", "0.036");
-            r.setAttribute("depth", railHalfThick * 2);
-            r.setAttribute("color", "#A1887F");
-            r.setAttribute("material", woodMat);
-            vegRoot.appendChild(r);
-          }
-          function fenceRailZ(x, y, midZ, halfLen) {
-            var r = document.createElement("a-box");
-            r.setAttribute(
-              "position",
-              x + " " + y + " " + midZ
-            );
-            r.setAttribute("width", railHalfThick * 2);
-            r.setAttribute("height", "0.036");
-            r.setAttribute("depth", halfLen * 2);
-            r.setAttribute("color", "#A1887F");
-            r.setAttribute("material", woodMat);
-            vegRoot.appendChild(r);
-          }
-          var railOut = 0.028;
-          var frontZ = fzLo - railOut;
-          var cxLeft = (fxLo + gateXL) * 0.5;
-          var hwLeft = (gateXL - fxLo) * 0.5;
-          var cxRight = (gateXR + fxHi) * 0.5;
-          var hwRight = (fxHi - gateXR) * 0.5;
-          fenceRailXSeg(frontZ, railLowY, cxLeft, hwLeft);
-          fenceRailXSeg(frontZ, railLowY, cxRight, hwRight);
-          fenceRailXSeg(frontZ, railHiY, cxLeft, hwLeft);
-          fenceRailXSeg(frontZ, railHiY, cxRight, hwRight);
-
-          fenceRailX(fzHi + railOut, railLowY, (fxHi - fxLo) * 0.5 + railHalfThick);
-          fenceRailX(fzHi + railOut, railHiY, (fxHi - fxLo) * 0.5 + railHalfThick);
-          fenceRailZ(fxLo - railOut, railLowY, (fzLo + fzHi) * 0.5, (fzHi - fzLo) * 0.5 + railHalfThick);
-          fenceRailZ(fxHi + railOut, railLowY, (fzLo + fzHi) * 0.5, (fzHi - fzLo) * 0.5 + railHalfThick);
-          fenceRailZ(fxLo - railOut, railHiY, (fzLo + fzHi) * 0.5, (fzHi - fzLo) * 0.5 + railHalfThick);
-          fenceRailZ(fxHi + railOut, railHiY, (fzLo + fzHi) * 0.5, (fzHi - fzLo) * 0.5 + railHalfThick);
-
-          /* Wild chickens — tangent to patch; roam inside fenced bed & on grass beyond */
-          var chickenFeetY = pathTop + 0.004;
-          var chickenBedFeetY = bedTop + 0.008;
+          /* Vegetable patch removed: keep only the chickens on the grass-level anchor. */
+          var chickenFeetY = 0.001;
+          var chickenBedFeetY = chickenFeetY;
           var chickenBodyScale = 4.15;
           var chickenMatBody =
             "shader: standard; roughness: 0.71; metalness: 0";
+          var birds =
+            chickenDefs || [
+              { mode: "inside", id: 31 },
+              { mode: "outside", id: 52 },
+              { mode: "outside", id: 79 },
+              { mode: "outside", id: 94 }
+            ];
+          for (var cb = 0; cb < birds.length; cb++) {
+            appendVegGardenChicken(birds[cb].mode, birds[cb].id);
+          }
+
           function appendVegGardenChicken(mode, wanderId) {
             var ch = document.createElement("a-entity");
             ch.setAttribute(
@@ -7165,6 +6862,10 @@
                 chickenBedFeetY +
                 "; wanderId: " +
                 wanderId +
+                "; roamX: " +
+                (mode === "outside" ? (roamOutsideX || 1.42) : (roamOutsideX || 1.42) * 0.64) +
+                "; roamZ: " +
+                (mode === "outside" ? (roamOutsideZ || 0.74) : (roamOutsideZ || 0.74) * 0.64) +
                 "; speed: " +
                 (mode === "outside" ? 0.272 : 0.216)
             );
@@ -7273,11 +6974,6 @@
 
             vegRoot.appendChild(ch);
           }
-
-          appendVegGardenChicken("inside", 31);
-          appendVegGardenChicken("outside", 52);
-          appendVegGardenChicken("outside", 79);
-          appendVegGardenChicken("outside", 94);
         }
 
         var placed = [];
@@ -7313,6 +7009,7 @@
           if (isNearHouse(longitude, latitude)) continue;
           if (isNearMountain(longitude, latitude)) continue;
           if (isNearSign(longitude, latitude)) continue;
+          if (isInHouseSignNoTreeZone(longitude, latitude)) continue;
           if (isNearUmbrellaChair(longitude, latitude)) continue;
           if (isNearWoodenBridge(longitude, latitude)) continue;
           if (isNearCampfire(longitude, latitude)) continue;
@@ -7368,6 +7065,7 @@
             if (isNearHouse(lo, la)) continue;
             if (isNearMountain(lo, la)) continue;
             if (isNearSign(lo, la)) continue;
+            if (isInHouseSignNoTreeZone(lo, la)) continue;
             if (isNearUmbrellaChair(lo, la)) continue;
             if (isNearWoodenBridge(lo, la)) continue;
             if (isNearCampfire(lo, la)) continue;
@@ -7384,7 +7082,40 @@
           }
         }
 
-        createVegetableGardenInClearing(vegGardenNormal);
+        var chickenSideLon = houseLongitude + 0.58;
+        var chickenSideLat = houseLatitude + 0.035;
+        var chickenSideCosLat = Math.cos(chickenSideLat);
+        var chickenSideNormal = new THREE.Vector3(
+          Math.sin(chickenSideLon) * chickenSideCosLat,
+          Math.sin(chickenSideLat),
+          Math.cos(chickenSideLon) * chickenSideCosLat
+        ).normalize();
+        createVegetableGardenInClearing(
+          chickenSideNormal,
+          [
+            { mode: "outside", id: 52 },
+            { mode: "inside", id: 31 }
+          ],
+          0.5,
+          0.32
+        );
+
+        var chickenFrontLon = houseLongitude + 0.14;
+        var chickenFrontLat = houseLatitude - 0.265;
+        var chickenFrontCosLat = Math.cos(chickenFrontLat);
+        var chickenFrontNormal = new THREE.Vector3(
+          Math.sin(chickenFrontLon) * chickenFrontCosLat,
+          Math.sin(chickenFrontLat),
+          Math.cos(chickenFrontLon) * chickenFrontCosLat
+        ).normalize();
+        createVegetableGardenInClearing(
+          chickenFrontNormal,
+          [
+            { mode: "outside", id: 94 }
+          ],
+          0.44,
+          0.26
+        );
         createGlobePastureCow();
       });
     </script>
@@ -7396,44 +7127,56 @@
       <a-sky id="sky" color="#56B9EF"></a-sky>
 
       <!-- Sun -->
-      <a-entity id="sun" position="18 22 -38">
+      <a-entity id="sun" position="-58 148 -58">
         <a-sphere
-          radius="2.4"
+          radius="7.2"
+          segments-width="96"
+          segments-height="48"
           color="#FFD45A"
-          material="shader: standard; roughness: 0.45; metalness: 0; emissive: #FFB000; emissiveIntensity: 1.2">
+          material="shader: standard; roughness: 0.45; metalness: 0; emissive: #FFB000; emissiveIntensity: 1.2; fog: false">
         </a-sphere>
         <a-sphere
-          radius="3.05"
+          radius="9.1"
+          segments-width="96"
+          segments-height="48"
           color="#FFE08A"
-          material="shader: flat; opacity: 0.22; transparent: true; side: back">
+          material="shader: flat; opacity: 0.22; transparent: true; side: back; fog: false">
         </a-sphere>
         <a-sphere
-          radius="3.8"
+          radius="11.25"
+          segments-width="96"
+          segments-height="48"
           color="#FFF0B8"
-          material="shader: flat; opacity: 0.09; transparent: true; side: back">
+          material="shader: flat; opacity: 0.09; transparent: true; side: back; fog: false">
         </a-sphere>
         <a-entity light="type: point; intensity: 1.1; distance: 80; decay: 1.2"></a-entity>
       </a-entity>
 
       <!-- Full moon for night mode -->
-      <a-entity id="moon" position="-20 -8 -28" visible="false">
+      <a-entity id="moon" position="-58 8 -58" visible="false">
         <a-sphere
           id="moonCore"
-          radius="2.05"
-          color="#E7EEF8"
-          material="shader: standard; roughness: 0.52; metalness: 0; emissive: #DDE6F5; emissiveIntensity: 0">
+          radius="6.4"
+          segments-width="96"
+          segments-height="48"
+          color="#E7D9BC"
+          material="shader: standard; roughness: 0.58; metalness: 0; emissive: #E7D9BC; emissiveIntensity: 0; opacity: 0; transparent: true; fog: false">
         </a-sphere>
         <a-sphere
           id="moonHalo"
-          radius="2.72"
+          radius="8.2"
+          segments-width="96"
+          segments-height="48"
           color="#DCE9FF"
-          material="shader: flat; opacity: 0.24; transparent: true; side: back; depthWrite: false">
+          material="shader: flat; opacity: 0.22; transparent: true; side: back; depthWrite: false; fog: false">
         </a-sphere>
         <a-sphere
           id="moonOuterHalo"
-          radius="3.28"
+          radius="9.85"
+          segments-width="96"
+          segments-height="48"
           color="#EAF2FF"
-          material="shader: flat; opacity: 0.095; transparent: true; side: back; depthWrite: false">
+          material="shader: flat; opacity: 0.08; transparent: true; side: back; depthWrite: false; fog: false">
         </a-sphere>
       </a-entity>
 
@@ -7476,107 +7219,9 @@
           </a-entity>
         </a-entity>
 
-        <!-- Hot air balloon: wanders around globe + planet-normal-up rig (see balloon-globe-orbit) -->
-        <a-entity
-          id="hotAirBalloon"
-          position="-5.15 9.55 -6.25"
-          balloon-globe-orbit="speed: 0.017; lonWobbleAmp: 0.055; lonWobbleFreq: 0.32; latAmp: 0.042; latFreq: 0.26; radiusAmp: 0.11; bobAmp: 0.065; bobFreq: 1.05">
-          <a-entity planet-normal-up>
-            <a-entity rotation="0 0 0" balloon-random-yaw="amplitude: 7; speed: 0.34; seed: 4.8">
-              <a-entity
-                animation__sway="property: rotation; dir: alternate; loop: true; dur: 9600; easing: easeInOutSine; from: 0 -11 0; to: 0 11 0">
-                <a-entity scale="0.845 0.845 0.845">
-                  <!-- Rig local +Y = toward envelope; −Y toward basket / ground -->
-                  <a-entity
-                    position="0 0.26 0"
-                    geometry="primitive: cylinder; radius: 0.415; height: 0.48; segmentsRadial: 64; openEnded: true"
-                    material="shader: standard; color: #6E4E38; roughness: 0.86; metalness: 0; side: double">
-                  </a-entity>
-                  <a-cylinder
-                    position="0 0.035 0"
-                    radius="0.37"
-                    height="0.045"
-                    segments-radial="64"
-                    color="#6E4E38"
-                    material="shader: standard; roughness: 0.86; metalness: 0">
-                  </a-cylinder>
-                  <a-torus
-                    position="0 0.48 0"
-                    radius="0.43"
-                    radius-tubular="0.024"
-                    segments-radial="32"
-                    segments-tubular="72"
-                    rotation="90 0 0"
-                    color="#4A3426"
-                    material="shader: standard; roughness: 0.8; metalness: 0.06">
-                  </a-torus>
-                  <a-entity position="0 0.54 0">
-                    <a-cylinder
-                      position="0 0.16 0"
-                      radius="0.046"
-                      height="0.28"
-                      color="#3D3D3D"
-                      material="shader: standard; roughness: 0.36; metalness: 0.48">
-                    </a-cylinder>
-                    <a-cone
-                      position="0 0.42 0"
-                      radius-bottom="0.028"
-                      radius-top="0.13"
-                      height="0.44"
-                      color="#FF7A33"
-                      material="shader: standard; roughness: 0.26; metalness: 0; emissive: #FF5208; emissiveIntensity: 0.92"
-                      animation__flScale="property: scale; dir: alternate; loop: true; dur: 340; easing: easeInOutSine; from: 1 1 1; to: 1.18 1.32 1.18"
-                      animation__flEm="property: material.emissiveIntensity; dir: alternate; loop: true; dur: 280; easing: easeInOutSine; from: 0.68; to: 1.48">
-                    </a-cone>
-                    <a-sphere
-                      position="0 0.58 0"
-                      radius="0.1"
-                      color="#FFE08A"
-                      material="shader: standard; roughness: 0.2; metalness: 0; emissive: #FFDA44; emissiveIntensity: 1.15"
-                      animation__coreScale="property: scale; dir: alternate; loop: true; dur: 240; easing: easeInOutSine; from: 1 1 1; to: 1.32 1.42 1.32"
-                      animation__coreEm="property: material.emissiveIntensity; dir: alternate; loop: true; dur: 210; easing: easeInOutSine; from: 0.88; to: 2.1">
-                    </a-sphere>
-                    <a-sphere
-                      position="0 0.66 0"
-                      radius="0.048"
-                      color="#FFFDF5"
-                      material="shader: standard; roughness: 0.12; metalness: 0; emissive: #FFFFFF; emissiveIntensity: 1.85"
-                      animation__hotPulse="property: material.emissiveIntensity; dir: alternate; loop: true; dur: 165; easing: easeInOutSine; from: 1.2; to: 3">
-                    </a-sphere>
-                    <a-entity
-                      position="0 0.52 0"
-                      light="type: point; intensity: 0.52; distance: 5.2; decay: 1.95; color: #FFB347">
-                    </a-entity>
-                  </a-entity>
-                  <a-entity balloon-rig-ropes></a-entity>
-                  <!-- Front and back text decals projected onto the envelope. -->
-                  <a-sphere
-                    id="balloonEnvelope"
-                    position="0 2.61 0"
-                    radius="1.36"
-                    scale="0.93 1.24 0.93"
-                    segments-width="48"
-                    segments-height="32"
-                    color="#FF4FD8"
-                    material="shader: standard; roughness: 0.3; metalness: 0.06; emissive: #C9188E; emissiveIntensity: 0.14"
-                    balloon-envelope-phrase="horizontal-tan-scale: 0.46; vertical-tan-scale: 1.34">
-                  </a-sphere>
-                  <!-- Front + back decals: aim from envelope center to each anchor (world). Opposite rig: parent Y rotated 180° from front (-72 → 108). -->
-                  <a-entity position="0 2.61 0" rotation="0 -72 0">
-                    <a-entity id="balloonPhraseAnchor" position="1.82 0.118 0" rotation="0 90 0"></a-entity>
-                  </a-entity>
-                  <a-entity position="0 2.61 0" rotation="0 108 0">
-                    <a-entity id="balloonPhraseAnchorOpposite" position="1.82 0.132 0" rotation="0 90 0"></a-entity>
-                  </a-entity>
-                </a-entity>
-              </a-entity>
-            </a-entity>
-          </a-entity>
-        </a-entity>
-
         <!-- Animated human walking around the house -->
         <a-entity id="human" human-house-walk="longitude: 0; latitude: 0.55; speed: 0.27" scale="1.74 1.74 1.74">
-          <a-entity position="0 0.45 0">
+          <a-entity class="human-torso" position="0 0.45 0">
             <a-cylinder position="0 -0.145 0" radius="0.11" height="0.058" color="#FF4FB8" material="shader: standard; roughness: 0.68; metalness: 0"></a-cylinder>
             <a-cylinder position="0 -0.087 0" radius="0.11" height="0.058" color="#4D9FFF" material="shader: standard; roughness: 0.68; metalness: 0"></a-cylinder>
             <a-cylinder position="0 -0.029 0" radius="0.11" height="0.058" color="#FF4FB8" material="shader: standard; roughness: 0.68; metalness: 0"></a-cylinder>
@@ -7691,22 +7336,6 @@
           <!-- Talon hints -->
           <a-cone position="-0.045 -0.16 0.02" radius-bottom="0.028" radius-top="0" height="0.09" rotation="-55 0 -25" color="#D9A620" material="shader: standard; roughness: 0.5; metalness: 0.12"></a-cone>
           <a-cone position="0.045 -0.16 0.02" radius-bottom="0.028" radius-top="0" height="0.09" rotation="-55 0 25" color="#D9A620" material="shader: standard; roughness: 0.5; metalness: 0.12"></a-cone>
-        </a-entity>
-
-        <!-- Giraffe roaming the southern “bottom” of the globe -->
-        <a-entity id="giraffe" giraffe-bottom-walk="latMin: -0.26; latMax: -0.052; visibleLonCenter: 0; visibleLonHalfWidth: 0.88; heightOffset: 0.27; maxLonRate: 0.056; maxLatRate: 0.032" scale="2.12 2.12 2.12">
-          <a-box position="0 0.46 0" width="0.42" height="0.36" depth="0.56" color="#F4CA62" material="shader: standard; roughness: 0.66; metalness: 0"></a-box>
-          <a-cylinder class="giraffe-neck" position="0 0.86 -0.1" radius="0.072" height="0.64" color="#F2C555" material="shader: standard; roughness: 0.65; metalness: 0"></a-cylinder>
-          <a-sphere class="giraffe-head" position="0 1.28 -0.16" radius="0.13" color="#F0C24E" material="shader: standard; roughness: 0.64; metalness: 0"></a-sphere>
-          <a-sphere position="0.06 1.26 -0.28" radius="0.035" color="#4A3728" material="shader: standard; roughness: 0.45; metalness: 0.08"></a-sphere>
-          <a-sphere position="-0.06 1.26 -0.28" radius="0.035" color="#4A3728" material="shader: standard; roughness: 0.45; metalness: 0.08"></a-sphere>
-          <a-cylinder position="0.065 1.44 -0.14" radius="0.018" height="0.14" color="#6B5344" material="shader: standard; roughness: 0.68; metalness: 0"></a-cylinder>
-          <a-cylinder position="-0.065 1.44 -0.14" radius="0.018" height="0.14" color="#6B5344" material="shader: standard; roughness: 0.68; metalness: 0"></a-cylinder>
-          <a-cone position="0 1.22 -0.38" radius-bottom="0.045" radius-top="0" height="0.12" rotation="-90 0 0" color="#6B5344" material="shader: standard; roughness: 0.72; metalness: 0"></a-cone>
-          <a-cylinder class="giraffe-leg-fl" position="0.14 0.24 0.2" radius="0.052" height="0.58" color="#ECC455" material="shader: standard; roughness: 0.67; metalness: 0"></a-cylinder>
-          <a-cylinder class="giraffe-leg-fr" position="-0.14 0.24 0.2" radius="0.052" height="0.58" color="#ECC455" material="shader: standard; roughness: 0.67; metalness: 0"></a-cylinder>
-          <a-cylinder class="giraffe-leg-bl" position="0.14 0.24 -0.22" radius="0.052" height="0.58" color="#ECC455" material="shader: standard; roughness: 0.67; metalness: 0"></a-cylinder>
-          <a-cylinder class="giraffe-leg-br" position="-0.14 0.24 -0.22" radius="0.052" height="0.58" color="#ECC455" material="shader: standard; roughness: 0.67; metalness: 0"></a-cylinder>
         </a-entity>
 
         <!-- Pink butterfly staying close to the house -->
