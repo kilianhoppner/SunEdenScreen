@@ -139,8 +139,12 @@
       }
 
       @media (max-width: 760px) {
+        .live-cam-status {
+          top: calc(clamp(32px, 4.55vmin, 53px) + clamp(32px, 3.08vmin, 50px) + clamp(10px, 1.2vmin, 16px));
+        }
+
         .live-cam-time {
-          top: calc(clamp(32px, 4.55vmin, 57px) + clamp(46px, 4.6vmin, 72px));
+          top: calc(clamp(32px, 4.55vmin, 53px) + 2px);
           right: auto;
           bottom: auto;
           left: 50%;
