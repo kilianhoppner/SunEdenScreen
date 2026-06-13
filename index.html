@@ -45,52 +45,52 @@
 
       .live-cam-corner {
         position: absolute;
-        width: clamp(42px, 4vmin, 78px);
-        height: clamp(42px, 4vmin, 78px);
+        width: clamp(52px, 5vmin, 96px);
+        height: clamp(52px, 5vmin, 96px);
         border-color: #C9C9C9;
         border-style: solid;
         border-width: 0;
       }
 
       .live-cam-corner.top-left {
-        top: clamp(28px, 4vmin, 54px);
-        left: clamp(28px, 4vmin, 56px);
-        border-top-width: clamp(4px, 0.34vmin, 6px);
-        border-left-width: clamp(4px, 0.34vmin, 6px);
+        top: clamp(34px, 4.8vmin, 66px);
+        left: clamp(34px, 4.8vmin, 68px);
+        border-top-width: clamp(6px, 0.48vmin, 9px);
+        border-left-width: clamp(6px, 0.48vmin, 9px);
       }
 
       .live-cam-corner.top-right {
-        top: clamp(28px, 4vmin, 54px);
-        right: clamp(28px, 4vmin, 56px);
-        border-top-width: clamp(4px, 0.34vmin, 6px);
-        border-right-width: clamp(4px, 0.34vmin, 6px);
+        top: clamp(34px, 4.8vmin, 66px);
+        right: clamp(34px, 4.8vmin, 68px);
+        border-top-width: clamp(6px, 0.48vmin, 9px);
+        border-right-width: clamp(6px, 0.48vmin, 9px);
       }
 
       .live-cam-corner.bottom-left {
-        bottom: clamp(28px, 4vmin, 54px);
-        left: clamp(28px, 4vmin, 56px);
-        border-bottom-width: clamp(4px, 0.34vmin, 6px);
-        border-left-width: clamp(4px, 0.34vmin, 6px);
+        bottom: clamp(34px, 4.8vmin, 66px);
+        left: clamp(34px, 4.8vmin, 68px);
+        border-bottom-width: clamp(6px, 0.48vmin, 9px);
+        border-left-width: clamp(6px, 0.48vmin, 9px);
       }
 
       .live-cam-corner.bottom-right {
-        right: clamp(28px, 4vmin, 56px);
-        bottom: clamp(28px, 4vmin, 54px);
-        border-right-width: clamp(4px, 0.34vmin, 6px);
-        border-bottom-width: clamp(4px, 0.34vmin, 6px);
+        right: clamp(34px, 4.8vmin, 68px);
+        bottom: clamp(34px, 4.8vmin, 66px);
+        border-right-width: clamp(6px, 0.48vmin, 9px);
+        border-bottom-width: clamp(6px, 0.48vmin, 9px);
       }
 
       .live-cam-status {
         position: absolute;
-        top: clamp(26px, 3.8vmin, 46px);
+        top: calc(clamp(32px, 4.55vmin, 57px) - 3px);
         left: 50%;
         display: flex;
         align-items: center;
-        gap: clamp(10px, 1.16vmin, 16px);
+        gap: clamp(12px, 1.36vmin, 19px);
         transform: translateX(-50%);
         color: #111111;
         font-family: "ABCDiatypeRoundedEdu", Arial, sans-serif;
-        font-size: clamp(29px, 2.92vmin, 50px);
+        font-size: clamp(35px, 3.48vmin, 60px);
         line-height: 1;
         letter-spacing: 0;
         white-space: nowrap;
@@ -101,8 +101,8 @@
       }
 
       .live-cam-dot {
-        width: clamp(29px, 2.68vmin, 48px);
-        height: clamp(29px, 2.68vmin, 48px);
+        width: clamp(33px, 3vmin, 54px);
+        height: clamp(33px, 3vmin, 54px);
         border-radius: 50%;
         background: #FF1010;
         animation: liveCamBlink 1.15s steps(2, start) infinite;
@@ -122,20 +122,30 @@
 
       .live-cam-time {
         position: absolute;
-        top: calc(clamp(26px, 3.8vmin, 43px) + 2px);
-        right: clamp(150px, 9.8vw, 190px);
+        top: calc(clamp(32px, 4.55vmin, 53px) + 2px);
+        right: clamp(180px, 11.8vw, 228px);
         display: flex;
         align-items: center;
         justify-content: center;
-        min-height: clamp(27px, 2.58vmin, 42px);
-        padding: 0 clamp(4px, 0.32vmin, 6px);
+        min-height: clamp(32px, 3.08vmin, 50px);
+        padding: 0 clamp(5px, 0.38vmin, 7px);
         color: #FFFFFF;
         background: #949494;
         font-family: "ChicagoKare", "Courier New", monospace;
-        font-size: clamp(26px, 2.58vmin, 46px);
+        font-size: clamp(31px, 3.08vmin, 55px);
         line-height: 1;
         letter-spacing: 1px;
         white-space: nowrap;
+      }
+
+      @media (max-width: 760px) {
+        .live-cam-time {
+          top: auto;
+          right: auto;
+          bottom: calc(clamp(32px, 4.55vmin, 53px) + 2px);
+          left: 50%;
+          transform: translateX(-50%);
+        }
       }
 
     </style>
@@ -1208,6 +1218,8 @@
         schema: {
           sensitivity: { type: "number", default: 0.11 },
           maxPitch: { type: "number", default: 72 },
+          returnIdleMs: { type: "number", default: 15000 },
+          returnDurationMs: { type: "number", default: 3600 },
           worldCenterX: { type: "number", default: 0 },
           worldCenterY: { type: "number", default: 1 },
           worldCenterZ: { type: "number", default: -15 }
@@ -1219,6 +1231,12 @@
           this.pitch = 0;
           this.lastX = 0;
           this.lastY = 0;
+          this.lastInteractionTime = performance.now();
+          this.returning = false;
+          this.returnStartTime = 0;
+          this.returnStartYaw = 0;
+          this.returnStartPitch = 0;
+          this.returnYawDelta = 0;
           this.defaultQuat = this.el.object3D.quaternion.clone();
           this.worldCenter = new THREE.Vector3(
             this.data.worldCenterX,
@@ -1257,6 +1275,8 @@
         },
         onPointerDown: function (event) {
           this.dragging = true;
+          this.returning = false;
+          this.lastInteractionTime = performance.now();
           this.lastX = event.clientX;
           this.lastY = event.clientY;
           if (this.canvas && this.canvas.setPointerCapture) {
@@ -1278,16 +1298,57 @@
             -this.data.maxPitch,
             this.data.maxPitch
           );
+          this.lastInteractionTime = performance.now();
           this.applyRotation();
           event.preventDefault();
         },
         onPointerUp: function (event) {
           this.dragging = false;
+          this.lastInteractionTime = performance.now();
           if (this.canvas && this.canvas.releasePointerCapture) {
             try {
               this.canvas.releasePointerCapture(event.pointerId);
             } catch (e) {}
           }
+        },
+        tick: function (time) {
+          if (this.dragging) return;
+          var moved =
+            Math.abs(this.yaw) > 0.002 || Math.abs(this.pitch) > 0.002;
+          if (!moved) {
+            this.returning = false;
+            return;
+          }
+
+          if (!this.returning) {
+            if (time - this.lastInteractionTime < this.data.returnIdleMs) return;
+            this.returning = true;
+            this.returnStartTime = time;
+            this.returnStartYaw = this.yaw;
+            this.returnStartPitch = this.pitch;
+            this.returnYawDelta = this.shortestAngleDelta(this.returnStartYaw, 0);
+          }
+
+          var u = THREE.MathUtils.clamp(
+            (time - this.returnStartTime) / Math.max(1, this.data.returnDurationMs),
+            0,
+            1
+          );
+          var eased = u * u * u * (u * (u * 6 - 15) + 10);
+          this.yaw = this.returnStartYaw + this.returnYawDelta * eased;
+          this.pitch = THREE.MathUtils.lerp(this.returnStartPitch, 0, eased);
+          if (u >= 1) {
+            this.yaw = 0;
+            this.pitch = 0;
+            this.returning = false;
+            this.lastInteractionTime = time;
+          }
+          this.applyRotation();
+        },
+        shortestAngleDelta: function (fromDeg, toDeg) {
+          var delta = ((toDeg - fromDeg + 180) % 360) - 180;
+          if (delta < -180) delta += 360;
+          return delta;
         },
         applyRotation: function () {
           var THREE = AFRAME.THREE;
@@ -1749,6 +1810,7 @@
           this.headPitchCurrent = 0;
           this.headYawCurrent = 0;
           this.walkAmountCurrent = 1;
+          this.limbSwingCurrent = 0;
           this.returnAngle = 0;
           this.visitStartAngle = this.data.speed * this.data.visitDelay;
           this.nextVisitAngle = this.visitStartAngle;
@@ -1761,6 +1823,16 @@
           this.moveSpeedSm = 0;
           this.fireT = 0;
           this.fireActive = false;
+          this.fireStepOffset = 0;
+          this.fireStepFrom = 0;
+          this.fireStepTo = 0;
+          this.fireStepElapsed = 0;
+          this.fireStepDuration = 1;
+          this.fireStepPause = 3.4;
+          this.fireStepWalking = false;
+          this.fireStepStrength = 0;
+          this.fireStepDir = 1;
+          this.fireStepPhase = 0;
           var houseCosLat = Math.cos(this.data.latitude);
           this.houseNormal = new THREE.Vector3(
             Math.sin(this.data.longitude) * houseCosLat,
@@ -1832,6 +1904,14 @@
           } else if (this.mode === "hold") {
             this.modeT += dt;
             normal = this.fireHoldNormalAt(this.fireT, nightTurn, this.currentNormal);
+            var fireHouseMoveAmount = this.fireHouseMoveAmount(this.fireT, nightTurn);
+            this.updateFireHouseStep(dt, fireHouseMoveAmount, this.fireT);
+            if (Math.abs(this.fireStepOffset) > 0.0001) {
+              normal = this.fireHouseStepNormalAt(
+                this.fireStepOffset,
+                this.currentNormal
+              );
+            }
             nextNormal = normal;
           } else if (this.mode === "toCircle") {
             this.modeT += dt;
@@ -1874,7 +1954,7 @@
             walkAmountTarget =
               1 - this.ease01((this.modeT / this.data.visitTravelTime - 0.62) / 0.38);
           } else if (this.mode === "hold") {
-            walkAmountTarget = 0;
+            walkAmountTarget = 0.36 * this.fireStepStrength;
           } else if (this.mode === "toCircle") {
             var leaveWalkTime = Math.max(0.2, this.data.visitTravelTime - this.data.headLowerTime);
             var leaveWalkU = THREE.MathUtils.clamp(
@@ -1919,6 +1999,19 @@
                   : this.houseNormal;
               var lookPosition = lookNormal.clone().multiplyScalar(PLANET_RADIUS + 0.12);
               var fireForward = lookPosition.sub(position);
+              if (fireHouseMoveAmount > 0.001 && this.fireStepStrength > 0.001) {
+                var toHouseStep = this.houseNormal
+                  .clone()
+                  .sub(normal.clone().multiplyScalar(this.houseNormal.dot(normal)));
+                if (toHouseStep.lengthSq() > 1e-8) {
+                  toHouseStep.normalize();
+                  var stepForward = new THREE.Vector3()
+                    .crossVectors(normal, toHouseStep)
+                    .normalize()
+                    .multiplyScalar(this.fireStepDir);
+                  fireForward.lerp(stepForward, 0.42 * this.fireStepStrength);
+                }
+              }
               forward.lerp(fireForward, nightTurn);
             }
           } else {
@@ -1976,11 +2069,22 @@
             normal.clone().multiplyScalar(stepBob + fireWeightBob)
           );
 
-          var swing =
-            Math.sin(this.walkPhase) *
+          var humanStepPhase =
+            this.mode === "hold"
+              ? this.fireStepPhase
+              : this.walkPhase;
+          var swingTarget =
+            Math.sin(humanStepPhase) *
             26 *
             this.walkAmountCurrent *
             (0.35 + strideSpeed * 0.65);
+          this.limbSwingCurrent +=
+            (swingTarget - this.limbSwingCurrent) *
+            (1 - Math.exp((this.mode === "hold" ? -8.5 : -18) * dt));
+          if (Math.abs(swingTarget) < 0.001 && Math.abs(this.limbSwingCurrent) < 0.02) {
+            this.limbSwingCurrent = 0;
+          }
+          var swing = this.limbSwingCurrent;
           var leftLeg = this.el.querySelector(".left-leg");
           var rightLeg = this.el.querySelector(".right-leg");
           var leftArm = this.el.querySelector(".left-arm");
@@ -2049,13 +2153,14 @@
           if (fireLook > 0.001) {
             if (!this.fireReturnToCamera(ft)) {
               var signPhase = this.fireSignPhase(ft);
+              var houseLook = 1 - signPhase;
               var scanYaw =
-                Math.sin(ft * 0.48) * 4.8 +
-                Math.sin(ft * 0.18 + 1.7) * 2.4;
+                Math.sin(ft * 0.48) * (4.8 + houseLook * 3.8) +
+                Math.sin(ft * 0.18 + 1.7) * (2.4 + houseLook * 2.1);
               var scanPitch =
                 10 +
-                Math.sin(ft * 0.38 + 0.4) * 2.4 +
-                Math.sin(ft * 0.14) * 1.1;
+                Math.sin(ft * 0.38 + 0.4) * (2.4 + houseLook * 1.8) +
+                Math.sin(ft * 0.14) * (1.1 + houseLook * 1.0);
               return {
                 pitch: THREE.MathUtils.lerp(32, scanPitch + signPhase * 1.5, fireLook),
                 yaw: scanYaw * fireLook
@@ -2097,6 +2202,90 @@
             pitch: pitch + Math.sin(time * 0.83) * 0.45,
             yaw: yaw + Math.sin(time * 0.49 + 2.1) * 0.55
           };
+        },
+        fireHouseMoveAmount: function (time, fireAmount) {
+          if (
+            fireAmount <= 0.001 ||
+            this.fireReturnToCamera(time) ||
+            this.fireSignPhase(time) > 0.001
+          )
+            return 0;
+          var fadeIn = THREE.MathUtils.smoothstep(time, 3.5, 8.5);
+          var fadeOut = 1 - THREE.MathUtils.smoothstep(time, 66, 72);
+          return fireAmount * fadeIn * fadeOut;
+        },
+        updateFireHouseStep: function (dt, amount, fireTime) {
+          if (fireTime >= 68) {
+            if (
+              !this.fireStepWalking ||
+              Math.abs(this.fireStepTo) > 0.0001
+            ) {
+              this.fireStepWalking = true;
+              this.fireStepFrom = this.fireStepOffset;
+              this.fireStepTo = 0;
+              this.fireStepElapsed = 0;
+              this.fireStepDuration = Math.max(0.65, 71.4 - fireTime);
+              this.fireStepDir = this.fireStepTo >= this.fireStepFrom ? 1 : -1;
+            }
+          }
+          if (amount <= 0.001) {
+            this.fireStepWalking = false;
+            this.fireStepStrength = 0;
+            this.fireStepOffset += (0 - this.fireStepOffset) * (1 - Math.exp(-2.8 * dt));
+            if (Math.abs(this.fireStepOffset) < 0.00012) this.fireStepOffset = 0;
+            this.fireStepFrom = this.fireStepOffset;
+            this.fireStepTo = 0;
+            this.fireStepPause = 1.2;
+            return;
+          }
+          if (this.fireStepWalking) {
+            this.fireStepElapsed += dt;
+            var p = THREE.MathUtils.clamp(this.fireStepElapsed / this.fireStepDuration, 0, 1);
+            var eased = p * p * (3 - 2 * p);
+            this.fireStepOffset =
+              this.fireStepFrom + (this.fireStepTo - this.fireStepFrom) * eased;
+            this.fireStepStrength = Math.sin(p * Math.PI) * amount;
+            this.fireStepPhase += dt * (3.1 + this.fireStepStrength * 1.2);
+            if (p >= 1) {
+              this.fireStepOffset = this.fireStepTo;
+              this.fireStepFrom = this.fireStepOffset;
+              this.fireStepWalking = false;
+              this.fireStepPause = 5.2 + Math.random() * 6.4;
+            }
+            return;
+          }
+
+          this.fireStepStrength += (0 - this.fireStepStrength) * (1 - Math.exp(-6.4 * dt));
+          if (this.fireStepStrength < 0.001) this.fireStepStrength = 0;
+          this.fireStepPause -= dt;
+          if (this.fireStepPause > 0) return;
+          if (fireTime >= 64) return;
+
+          this.fireStepFrom = this.fireStepOffset;
+          var nearCenter = Math.abs(this.fireStepFrom) < 0.004;
+          if (nearCenter) {
+            this.fireStepTo = (Math.random() < 0.5 ? -1 : 1) * (0.012 + Math.random() * 0.008);
+          } else {
+            this.fireStepTo = (Math.random() - 0.5) * 0.006;
+          }
+          this.fireStepDir = this.fireStepTo >= this.fireStepFrom ? 1 : -1;
+          this.fireStepElapsed = 0;
+          this.fireStepDuration = 2.2 + Math.random() * 1.35;
+          this.fireStepWalking = true;
+        },
+        fireHouseStepNormalAt: function (offset, target) {
+          var base = this.stopNormal;
+          var toHouse = this.houseNormal
+            .clone()
+            .sub(base.clone().multiplyScalar(this.houseNormal.dot(base)));
+          if (toHouse.lengthSq() < 1e-8) return target.copy(base);
+          toHouse.normalize();
+          var side = new THREE.Vector3().crossVectors(base, toHouse).normalize();
+          return target
+            .copy(base)
+            .multiplyScalar(Math.cos(offset))
+            .add(side.multiplyScalar(Math.sin(offset)))
+            .normalize();
         },
         fireSignPhase: function (time) {
           var start = 72;
